@@ -160,11 +160,47 @@ to the `registry` dict in `score()` in `src/trueplumb/cli.py`.
    `block-everything`-style comparison tells nobody anything. Assert where your control
    fails — every control has a blind spot, and naming it is more valuable than hiding it.
 
+### How the shipped adapter does it
+
+`presidio.py` is the worked example. Read it before writing yours, and copy the shape:
+
+- **Nothing is imported from the product.** `tests/test_presidio.py` walks `presidio.py`'s
+  AST and asserts `presidio_analyzer` and `spacy` are absent — by AST rather than by
+  substring, because the module's docstring names the import in order to explain its
+  absence. `scripts/record_presidio.py` is the only file that touches the product, and it
+  runs wherever the caller chooses.
+- **The vendor log is the interface.** A JSON file records what the product found: entity
+  types, spans, recognizer names, and the vendor's confidence. It carries **no timestamp**,
+  so re-running the harness on the same corpus produces an identical file and a diff means
+  the product's behaviour changed. `tests/test_presidio.py` asserts that no date-shaped key
+  exists anywhere in it.
+- **The score is evidence, never input.** `StepOutcome.evidence["vendor_scores"]` holds the
+  vendor's confidences verbatim. The test that matters rewrites every score in the log to
+  `1.0 - score` and asserts that no verdict moves.
+- **Two `NOT_REACHED` reasons.** A halt and a missing log entry both mean "not presented",
+  but they mean different things operationally — the control worked, or your harness broke.
+  Give them different `reason` strings.
+- **A bad log is a usage error, not a crash.** A missing log, or a log for the other
+  rendering, should exit 2 like any other bad input.
+
+```bash
+# Run the product yourself, in a sandbox of your choosing, then score the result.
+python -m venv .presidio-sandbox
+.presidio-sandbox/bin/pip install presidio-analyzer==2.2.364
+.presidio-sandbox/bin/python -m spacy download en_core_web_sm
+.presidio-sandbox/bin/python scripts/record_presidio.py \
+    --corpus corpus/ --out measurements/presidio-log.json --rendering atom
+
+trueplumb score corpus/ --adapter presidio
+```
+
 ### What a good adapter PR includes
 
 - The adapter, plus a note on which product and version it wraps.
 - A short list of what it **cannot** catch, if you found any.
 - Confirmation that the product's own scoring is not being trusted anywhere in the path.
+- The committed decision log, if you are willing to publish it, so your numbers are
+  reviewable rather than asserted.
 
 ---
 

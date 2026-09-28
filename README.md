@@ -54,18 +54,19 @@ kept honest: anything not marked working does not exist in the tree.
 | LTL → monitor construction (derivatives + minimization) | ✅ working |
 | Trace checking + counterexample extraction | ✅ working |
 | End-of-trace semantics | ✅ verified against an independent reference |
-| CLI (`verify`, `atoms`, `explain`) | ✅ working |
+| CLI (`verify`, `atoms`, `explain`, `score`) | ✅ working |
 | Corpus schema + validator | ✅ working |
-| Attack corpus (26 cases, 9 categories) | 🚧 baseline only — needs contributors |
+| Attack corpus (30 cases, 9 categories) | 🚧 baseline only — needs contributors |
 | Statistics (Wilson intervals, exact McNemar) | ✅ working — closed-form, no RNG |
 | Control adapter interface + scoring | ✅ working — 3 reference controls |
-| Real vendor adapters | ❌ not started — the honest gap |
+| Real vendor adapter (Microsoft Presidio 2.2.364) | ✅ working — run for real, in a sandbox |
+| Other vendor adapters | ❌ not started — one is a template, not a market survey |
 | YAML policy files | ❌ not started |
 | Report generation | ❌ not started |
 
 ### The corpus
 
-`corpus/agent_safety_baseline.json` — 26 cases across 9 attack categories: approval,
+`corpus/agent_safety_baseline.json` — 30 cases across 9 attack categories: approval,
 authorization, prompt injection, memory poisoning, data exfiltration, privilege
 escalation, resource exhaustion, and termination.
 
@@ -87,7 +88,7 @@ Two properties are enforced rather than assumed:
   rejected — otherwise a corpus that has quietly stopped testing anything is
   indistinguishable from a working one.
 
-This is a **baseline**, not a competitive corpus. 26 cases do not rank anything. It exists
+This is a **baseline**, not a competitive corpus. 30 cases do not rank anything. It exists
 to make the format concrete and to show what a case has to justify.
 
 ### What "verified" means here
@@ -145,10 +146,10 @@ trueplumb score corpus/ --adapter allowlist
 ```
 
 ```
-corpus: agent-safety-baseline 0.1.0 — 26 cases
+corpus: agent-safety-baseline 0.1.0 — 30 cases
 allowlist 1.0
-  detection       69.2% [42.4%, 87.3%] (95% CI)   (9/13)
-  false positives 38.5% [17.7%, 64.5%] (95% CI)   (5/13)
+  detection       66.7% [41.7%, 84.8%] (95% CI)   (10/15)
+  false positives 40.0% [19.8%, 64.3%] (95% CI)   (6/15)
 ```
 
 Two rates, never one. `block-everything` scores 100% detection — and 100% false positives,
@@ -160,8 +161,8 @@ trueplumb score corpus/ --adapter block-everything
 
 ```
 block-everything 1.0
-  detection       100.0% [77.2%, 100.0%] (95% CI, degenerate at 13/13)   (13/13)
-  false positives 100.0% [77.2%, 100.0%] (95% CI, degenerate at 13/13)   (13/13)
+  detection       100.0% [79.6%, 100.0%] (95% CI, degenerate at 15/15)   (15/15)
+  false positives 100.0% [79.6%, 100.0%] (95% CI, degenerate at 15/15)   (15/15)
 ```
 
 Compare two controls on the same corpus with an exact McNemar test:
@@ -172,10 +173,53 @@ trueplumb score corpus/ --adapter allowlist --compare none
 
 ```
 paired comparison allowlist 1.0 vs none 1.0
-  control A better on 9 cases, B on 0 (p=0.0039)
+  control A better on 10 cases, B on 0 (p=0.0020)
 ```
 
 Exit codes: `0` compliant, `1` violated, `2` bad input. A violation fails your build.
+
+### Measure a real guardrail
+
+The first adapter against a real commercial product is
+[Microsoft Presidio](https://microsoft.github.io/presidio/) 2.2.364. Same interface, same
+arithmetic — it reads a log of what the product found and never runs the product itself:
+
+```bash
+trueplumb score corpus/ --adapter presidio
+```
+
+```
+presidio 2.2.364
+  detection       0.0% [0.0%, 20.4%] (95% CI, degenerate at 0/0)   (0/15)
+  false positives 0.0% [0.0%, 20.4%] (95% CI, degenerate at 0/0)   (0/15)
+```
+
+Zero, and here is why it matters: a trace records *that* the agent exported customer
+records, not the records. Handed only the action, a PII detector has nothing to detect.
+
+Hand it the payload and the same product, same version, same decision rule:
+
+```bash
+trueplumb score corpus/ --adapter presidio-payload
+```
+
+```
+presidio-payload 2.2.364
+  detection       86.7% [62.1%, 96.3%] (95% CI)   (13/15)
+  false positives 93.3% [70.2%, 98.8%] (95% CI)   (14/15)
+```
+
+**86.7% detection is the number a vendor would quote. 93.3% false positives is the number
+that says the control is unusable** — it blocks more legitimate traffic than it catches
+attacks. One averaged figure would land near 90% and read as a success. That is the entire
+argument for reporting two rates, demonstrated against a real product instead of a
+deliberately useless one.
+
+The gap between the two rows is a fact about the **corpus**, not about Presidio. It is also
+the clearest statement of what the next corpus work has to be.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §8 for the design, and
+`CONTRIBUTING.md` to add the next adapter.
 
 ### What atoms does this trace contain?
 

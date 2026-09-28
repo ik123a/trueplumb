@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -160,6 +161,27 @@ def score(
         typer.Option("--compare", help="A second control to test against the first."),
     ] = None,
     confidence: Annotated[float, typer.Option("--confidence", min=0.5, max=0.999)] = 0.95,
+    vendor_log: Annotated[
+        Path,
+        typer.Option(
+            "--vendor-log",
+            help=(
+                "Decision log for the real-product adapters, produced by running the "
+                "product in a sandbox. The adapter reads it and never runs the product."
+            ),
+        ),
+    ] = Path("measurements/presidio-log.json"),
+    vendor_log_payload: Annotated[
+        Path,
+        typer.Option(
+            "--vendor-log-payload",
+            help=(
+                "Decision log for the 'presidio-payload' adapter. A separate path because "
+                "the two renderings need separate runs, and comparing them is the whole "
+                "point of having both."
+            ),
+        ),
+    ] = Path("measurements/presidio-log-payload.json"),
 ) -> None:
     """Score a control over a corpus: detection rate, false-positive rate, and CIs.
 
@@ -168,9 +190,10 @@ def score(
     is useless. Merging them into a single number is how an unusable control gets quoted
     as a good one.
     """
-    from .adapters import compare_controls, score_control
+    from .adapters import ControlAdapter, compare_controls, score_control
     from .baseline import AllowlistedTools, BlockEverything, NullAdapter
     from .corpus import load_corpus
+    from .presidio import PresidioAdapter, PresidioLogError
 
     if corpus_path.is_dir():
         candidates = sorted(corpus_path.glob("*.json"))
@@ -185,17 +208,35 @@ def score(
     # The shipped reference controls. `none` is the floor and `block-everything` the
     # ceiling that proves why one rate is never enough; `allowlist` is a realistic
     # keyword-matching control that misses every sequence-dependent violation.
-    registry: dict[str, type] = {
+    #
+    # The two presidio entries are the same adapter over two different ways of turning a
+    # trace into the text the product reads. Neither runs the product: they read a log the
+    # caller produced in a sandbox. The gap between their scores is a fact about what a
+    # trace records, not about Presidio.
+    registry: dict[str, Callable[[], ControlAdapter]] = {
         "none": NullAdapter,
         "block-everything": BlockEverything,
         "allowlist": AllowlistedTools,
+        "presidio": lambda: PresidioAdapter(vendor_log, rendering="atom"),
+        "presidio-payload": lambda: PresidioAdapter(vendor_log_payload, rendering="payload"),
     }
-    if adapter not in registry:
-        raise _fail(
-            f"unknown adapter {adapter!r}; available: {', '.join(sorted(registry))}. "
-            "Real adapters are contributed separately -- see CONTRIBUTING.md."
-        )
-    primary = registry[adapter]()
+
+    def build(name: str) -> ControlAdapter:
+        """Construct an adapter, turning a bad vendor log into a usage error.
+
+        The real-product adapters read a file the caller has to produce first, so building
+        one can fail on perfectly reasonable input: a missing log, or a log for the other
+        rendering. That is bad input, not a crash, and it should exit 2 like every other
+        usage error. Letting it escape as a traceback makes a typo look like a defect.
+        """
+        if name not in registry:
+            raise _fail(f"unknown adapter {name!r}; available: {', '.join(sorted(registry))}")
+        try:
+            return registry[name]()
+        except PresidioLogError as exc:
+            raise _fail(str(exc)) from exc
+
+    primary = build(adapter)
 
     try:
         score_result = score_control(primary, list(corpus.cases), confidence=confidence)
@@ -206,9 +247,7 @@ def score(
     console.print(score_result.render())
 
     if compare:
-        if compare not in registry:
-            raise _fail(f"unknown adapter {compare!r}; available: {', '.join(sorted(registry))}")
-        other = registry[compare]()
+        other = build(compare)
         result = compare_controls(primary, other, list(corpus.cases))
         console.print()
         console.print(f"[bold]paired comparison[/] {primary.describe()} vs {other.describe()}")

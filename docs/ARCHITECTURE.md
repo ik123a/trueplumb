@@ -281,6 +281,7 @@ Three modules, deliberately separated by what they are allowed to know.
 | `adapters.py` | The `ControlAdapter` interface; score and compare two controls |
 | `stats.py` | Wilson intervals and exact McNemar. Closed-form, stdlib only |
 | `baseline.py` | Three reference controls, including the two useless ones |
+| `presidio.py` | The first real-product adapter. Reads a log; executes nothing |
 
 ### Three decisions, not status symbols
 
@@ -299,16 +300,94 @@ arguments:
 
 - `block-everything` scores **100% detection and 100% false positives.** It is what a
   single-rate report would present as a perfect score.
-- `allowlist` scores 69.2% detection with a 38.5% false-positive rate, and misses exactly
-  four cases: `refund-002-unapproved`, `refund-003-prior-approval-insufficient`,
-  `refund-004-stalled-before-approval`, and `terminated-002-stalled`. All four violate a
-  *temporal* obligation while containing no banned token at all. That is the corpus doing
-  the job it exists for — a keyword-matching guardrail cannot score well here, and now there
-  is a number that says so.
+- `allowlist` scores 66.7% detection with a 40.0% false-positive rate, and misses exactly
+  five cases: `refund-002-unapproved`, `refund-003-prior-approval-insufficient`,
+  `refund-004-stalled-before-approval`, `refund-006-second-refund-unapproved`, and
+  `terminated-002-stalled`. All five violate a *temporal* obligation while containing no
+  banned token at all. `refund-006` is the sharpest: it contains an approval *and* two
+  refunds, so any control asking "was the agent ever approved?" passes it while the policy
+  was violated at step 3. That is the corpus doing the job it exists for.
+
+```bash
+python -m trueplumb.cli score corpus/ --adapter allowlist         # both rates, 30 cases
+python -m trueplumb.cli score corpus/ --adapter block-everything  # 15/15 and 15/15
+```
 
 `compare_controls` counts only violation cases, because a blocks-everything control wins on
 detection while being unusable, and a test comparison that rewarded that would be measuring
 the wrong thing.
+
+### One real product: Microsoft Presidio
+
+`presidio.py` wraps [Presidio](https://microsoft.github.io/presidio/), Microsoft's PII
+detection library. It is the first adapter against something this project did not write,
+and its shape is the one to copy.
+
+**The adapter executes nothing.** There is no `import presidio_analyzer` in `src/`, and
+`tests/test_presidio.py` asserts that by walking the module's AST rather than grepping it —
+a substring search would match the docstring that explains why the import is absent.
+`scripts/record_presidio.py` runs the product in a sandbox the caller chooses and writes a
+JSON log; the adapter only reads that log. The separation is not tidiness. A conformance tool
+that imports the thing it measures has no independent verdict left to give, and a monkeypatch
+or a vendor-side import bug would reach the number.
+
+**It records decisions, never scores.** Presidio returns a confidence per detected entity.
+Those go to `StepOutcome.evidence["vendor_scores"]`, labelled as the vendor's, and no
+arithmetic anywhere reads them. The decision uses only the fact that an entity of an accepted
+type was reported. The test is behavioural: it rewrites every score in the log to
+`1.0 - score` and asserts that no verdict moves.
+
+**Unseen steps are `NOT_REACHED`.** A detection halts the run, so later steps were never
+presented. A step with no entry in the log was also never presented, and a missing entry
+halts the walk for the same reason. The two carry different `reason` strings, because
+"the harness stopped recording" is a broken harness while "the control blocked at step 2" is
+the control working.
+
+#### The result, and why it is the most useful number here
+
+```bash
+python -m trueplumb.cli score corpus/ --adapter presidio          # 0/15 and 0/15
+python -m trueplumb.cli score corpus/ --adapter presidio-payload  # 13/15 and 14/15
+```
+
+| Adapter | detection | false positives |
+|---|---|---|
+| `presidio` (atom rendering) | 0.0% (0/15) | 0.0% (0/15) |
+| `presidio-payload` | 86.7% [62.1%, 96.3%] (13/15) | 93.3% [70.2%, 98.8%] (14/15) |
+
+Both rows are the same product, the same version (`2.2.364`), the same spaCy model
+(`en_core_web_sm 3.8.0`), the same corpus, and the same decision rule. The only difference is
+what the control was handed:
+
+- **`atom`** renders a step as its atom names. The trace records *that* the agent exported
+  customer records; it does not record the records. A PII detector has nothing to detect.
+- **`payload`** renders a step as a synthetic tool call carrying plausible arguments, which
+  is what a real deployment would hand the product.
+
+Read the second row carefully, because it is the argument for this entire project made
+against a real product rather than against the `block-everything` baseline. **86.7%
+detection is the number a vendor would quote. 93.3% false positives is the number that says
+the control is unusable in production** — it blocks more legitimate traffic than it catches
+attacks. A report that averaged the two into one figure would put this control near 90% and
+call it a success. That is the whole reason the two rates are kept apart, demonstrated
+without anyone having to construct a deliberately useless control.
+
+The gap between the two rows is a finding about the **corpus**, not about Presidio. It is
+`METHODOLOGY.md` §6 arriving as a number: behaviour that is not recorded is not constrained.
+It also sets the agenda for corpus work, because a trace format carrying payloads would
+measure a different and separately interesting question.
+
+Both logs are committed under `measurements/` and are **byte-reproducible**: no timestamp is
+written, so re-running the harness on the same corpus produces an identical file and a diff
+means the product's behaviour changed. `tests/test_presidio.py` asserts that no date-shaped
+key exists anywhere in the log.
+
+```bash
+# Regenerate and confirm both are unchanged (requires a presidio sandbox).
+python scripts/record_presidio.py --corpus corpus/ --out /tmp/atom.json --rendering atom
+diff /tmp/atom.json measurements/presidio-log.json
+```
+
 
 ---
 
@@ -318,20 +397,26 @@ Named explicitly so this document cannot be mistaken for a complete design.
 
 | Component | State |
 |---|---|
-| **Attack corpus** | 🚧 baseline only — 26 cases, 9 categories, in `corpus/` |
+| **Attack corpus** | 🚧 baseline only — 30 cases, 9 categories, in `corpus/` |
 | **Corpus schema + validator** | ✅ `corpus.py`, verified in CI |
-| **Control adapter interface** | ✅ `adapters.py` — abstract, not yet against a real product |
+| **Control adapter interface** | ✅ `adapters.py` — abstract, and now implemented against a real product |
 | **Scoring + paired comparison** | ✅ detection, false positives, Wilson, exact McNemar |
-| **Real vendor adapters** | ❌ not started — **the honest gap** |
-| **Power analysis** | ❌ not started; 13 violation cases cannot separate two products |
+| **Real vendor adapters** | 🚧 1 of N — `presidio.py`, Microsoft Presidio 2.2.364, run for real |
+| **Sandboxed product execution** | ✅ `scripts/record_presidio.py`; caller chooses the sandbox |
+| **Power analysis** | ❌ not started; 15 violation cases cannot separate two products |
 | **YAML policies** | ❌ not started; policies are strings today |
 | **Report generation** | ❌ not started |
+| **Payload-carrying trace format** | ❌ not started; the `presidio` row above is the evidence for it |
 
-The pipeline is complete end to end: corpus → adapter → scores → intervals → paired test.
-Everything in it is tested and deterministic. What is missing is the two things that would
-make the result mean something — a real adapter, and a corpus large enough for the
-statistics to have power.
+The pipeline is complete end to end: corpus → sandboxed product run → adapter → scores →
+intervals → paired test. Everything in it is tested and deterministic, and one full pass has
+been executed against a commercial product. What is missing is the two things that would make
+the result mean something — more real adapters, and a corpus large enough for the statistics
+to have power.
 
-Those are not the same kind of gap. The adapter is engineering and needs a target product
-and a sandbox. The corpus is domain knowledge, and no amount of code produces it. Both are
-open invitations in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+Those are not the same kind of gap. The adapters are engineering: each needs a target product
+and a sandbox, and the Presidio adapter is the template. The corpus is domain knowledge, and
+no amount of code produces it. The `presidio` result above sharpens the ask rather than
+softening it: a control can only be measured on behaviour the trace actually recorded, so
+widening what a trace records is now a known, quantified lever rather than a guess. Both
+remain open invitations in [`CONTRIBUTING.md`](../CONTRIBUTING.md).

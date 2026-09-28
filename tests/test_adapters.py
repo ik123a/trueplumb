@@ -135,14 +135,21 @@ class TestAllowlistControl:
             case.id for case in CASES if case.expect == "violation" and not run.caught_case(case)
         ]
         assert missed, "expected at least one sequence-dependent violation to be missed"
-        # These four carry no banned atom anywhere in the trace. Every one is a violation of
-        # a *temporal* obligation rather than of a keyword rule: an action taken with no
-        # approval, an approval that had already expired, and runs that stalled before
-        # discharging their obligation. A control that matches tokens cannot see any of them.
+        # Each of these carries no banned atom anywhere in the trace. Every one violates a
+        # *temporal* obligation rather than a keyword rule: an action taken with no
+        # approval, an approval that had already expired, a second action the first
+        # action's approval did not cover, and runs that stalled before discharging their
+        # obligation. A control that matches tokens cannot see any of them.
+        #
+        # refund-006 is the sharpest of the five. It contains an approval and two refunds,
+        # so any control asking "was the agent ever approved?" answers yes and passes it --
+        # while the policy was violated at step 3. Being right about the first action is
+        # not being right about the second.
         assert set(missed) == {
             "refund-002-unapproved",
             "refund-003-prior-approval-insufficient",
             "refund-004-stalled-before-approval",
+            "refund-006-second-refund-unapproved",
             "terminated-002-stalled",
         }
 

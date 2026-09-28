@@ -75,6 +75,30 @@ jobs:
             | tee /tmp/block.txt
           test "$(grep -c '100.0%' /tmp/block.txt)" -ge 2
 
+      # The committed Presidio decision logs are the only vendor evidence in the
+      # repository, so a stale one would keep reporting numbers for a corpus that no
+      # longer exists. Re-running the product here is not an option -- it needs a presidio
+      # sandbox -- so instead each log is checked for internal consistency against the
+      # corpus: every case and every step the corpus defines must be present. Adding a case
+      # without re-recording fails, which is the intended direction.
+      #
+      # The scores themselves are NOT recomputed in CI. They are a property of the pinned
+      # product version and regenerating them needs the sandbox.
+      - name: Vendor decision logs cover the whole corpus
+        if: matrix.python-version == '3.12'
+        run: python scripts/check_vendor_logs.py measurements/
+
+      # The one result in this repository about a real product rather than about our own
+      # baselines. Asserted so that collapsing the two rates into one, or quietly
+      # re-tuning the rendering, fails the build instead of producing a flattering number.
+      - name: Presidio result still shows the false-positive half
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m trueplumb.cli score corpus/ --adapter presidio-payload | tee /tmp/presidio.txt
+          grep -q 'detection' /tmp/presidio.txt
+          grep -q 'false positives' /tmp/presidio.txt
+          python scripts/assert_presidio_finding.py
+
       # The gate that makes the rest of the suite trustworthy. The reference implementation
       # in scripts/differential_test.py shares no code path with the derivative-based
       # monitor, so it is an independent opinion rather than a restatement of the engine's

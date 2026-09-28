@@ -232,35 +232,48 @@ Stated so nobody has to discover them:
 2. **Atom names are the abstraction boundary.** A policy constrains the vocabulary of the
    trace, so a badly chosen vocabulary produces confident verdicts about the wrong things.
    This is why the loader rejects malformed atoms rather than coercing them.
-3. **The corpus is a baseline, not a measurement.** 26 cases across 9 attack categories
+3. **The corpus is a baseline, not a measurement.** 30 cases across 9 attack categories
    exist and are verified in CI, but that is a regression suite for the engine expressed as
    data. It is far too small to rank two controls, which is the product's actual claim.
-4. **No real vendor adapters.** The adapter interface, the scoring pipeline, and three
-   reference controls ship and work. What is missing is the part that actually matters: an
-   adapter for a real product. Until a contributor supplies one, TruePlumb measures itself
-   and its own reference baselines, not the market. Nothing here has been run against a
-   commercial guardrail, and no result in this repository should be presented as if it had.
-9. **Adapter scores are trusted at face value in one specific way.** TruePlumb records a
-   control's *decision*, not its internal state. A control that silently truncates its own
-   trace, or that only evaluates the first N steps, will be recorded as `NOT_REACHED` on
-   the rest — correct, but it will look like a miss rather than a broken harness. Real
-   adapters need their own checks that every step was genuinely presented.
-5. **Statistics are implemented but underpowered by the corpus.** Wilson intervals and the
+4. **A trace records that an action happened, not what it contained.** This used to be a
+   caveat and is now a number. Presidio detects nothing anywhere in the corpus when handed
+   atom names, because a trace says the agent exported customer records and does not say what
+   the records were. Handed the payload instead, the same product at the same version under
+   the same decision rule scores 86.7% detection — and 93.3% false positives. The difference
+   is the trace format, not the product.
+
+   ```bash
+   python -m trueplumb.cli score corpus/ --adapter presidio          # 0/15, 0/15
+   python -m trueplumb.cli score corpus/ --adapter presidio-payload  # 13/15, 14/15
+   ```
+5. **One real adapter is a template, not a market survey.** `presidio.py` wraps Microsoft
+   Presidio 2.2.364, run for real in a sandbox the caller chose. It shows the shape a
+   vendor adapter should take; it is not a sample of the market. Every vendor number in this
+   repository concerns exactly one product, and nothing here has been run against a
+   commercial guardrail for agent behaviour more broadly.
+6. **Adapter internal state is trusted at face value in one specific way.** TruePlumb records
+   a control's *decision*, not its internal state. A control that silently truncates its own
+   trace, or that only evaluates the first N steps, will be recorded as `NOT_REACHED` on the
+   rest — correct, but it will look like a miss rather than a broken harness. The Presidio
+   adapter separates the two cases in `StepOutcome.reason`, but that is per-adapter
+   discipline, not something the framework enforces for you.
+7. **Statistics are implemented but underpowered by the corpus.** Wilson intervals and the
    exact McNemar test are closed-form, seed-free, and verified against published values.
-   They are computed over 13 violation and 13 compliant cases, so every interval in this
-   repository is very wide. A wide interval is an honest one, and a 13-case corpus is too
+   They are computed over 15 violation and 15 compliant cases, so every interval in this
+   repository is very wide. A wide interval is an honest one, and a 30-case corpus is too
    small to separate two real products. The arithmetic is ready; the data is not.
    Note also that McNemar is a test on discordant pairs only: with few of them it lacks the
    power to detect a real difference, and "no detectable difference" must not be read as
-   "these are equivalent." The CLI says so at the point of output.
-6. **Counterexample extraction cannot distinguish "not yet" from "never".** The
+   "these are equivalent." The CLI says so at the point of output, and
+   `presidio-payload` versus `allowlist` is a live example of it at p=0.3750.
+8. **Counterexample extraction cannot distinguish "not yet" from "never".** The
    first-failing-prefix rule reports the earliest prefix that fails. For a trace ending
    without discharging `F(done)`, every prefix fails, so the report is step 0 — correct,
    but not informative. The useful answer ("the run stalled") is not what the tool currently
    says. Corpus cases therefore do not pin a step where the failure is an abandonment.
-7. **The differential harness is bounded by trace length.** Coverage grows as
+9. **The differential harness is bounded by trace length.** Coverage grows as
    `(alphabet + 1)^length`. Length 6 is roughly 91k traces per formula set, which is strong
    evidence but not a proof for all lengths.
-8. **State explosion is real.** A policy whose monitor explodes is unusable in CI. The
-   `explain` command reports state counts so this is visible before it bites, but no
-   guard rail rejects an expensive policy automatically.
+10. **State explosion is real.** A policy whose monitor explodes is unusable in CI. The
+    `explain` command reports state counts so this is visible before it bites, but no
+    guard rail rejects an expensive policy automatically.

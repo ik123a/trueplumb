@@ -22,6 +22,7 @@ from .ltl.ast import Atom, Formula
 from .ltl.automata import DFA, to_dfa
 from .ltl.parser import ParseError, parse
 from .ltl.trace import CheckResult, TraceEvent, check, load_trace
+from .presidio import PresidioAdapter, PresidioLogError
 from .stats import Interval, PairedResult, StatsError, mcnemar_exact, wilson_interval
 
 __all__ = [
@@ -39,6 +40,8 @@ __all__ = [
     "Interval",
     "PairedResult",
     "ParseError",
+    "PresidioAdapter",
+    "PresidioLogError",
     "StatsError",
     "StepOutcome",
     "TraceEvent",
