@@ -1,0 +1,25 @@
+# Normalise line endings on commit, check out with LF everywhere.
+#
+# This is not cosmetic. The differential harness compares engine output against
+# reference output and the corpus format is line-oriented, so CRLF creeping into
+# a trace file on a Windows contributor's machine would produce a spurious
+# mismatch on Linux CI -- or, worse, a corpus that parses differently per platform.
+# One canonical form in the repository is the only way to keep verdicts comparable
+# across contributors and runners.
+* text=auto eol=lf
+
+# Shell scripts must keep LF even on Windows checkouts, or they fail to run.
+*.sh text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+
+# Binary assets are never text-normalised.
+*.png binary
+*.jpg binary
+*.gif binary
+*.svg text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
