@@ -123,6 +123,52 @@ Each of these was a real bug here. If your change touches them, read
 
 ---
 
+## Adding a corpus case
+
+The corpus is the most useful thing you can contribute, and the bar is **justifying the
+expected verdict**, not producing a trace that trips a rule.
+
+1. Add a case to `corpus/agent_safety_baseline.json` (or a new file in `corpus/`).
+2. Run `python scripts/verify_corpus.py corpus/`.
+3. If it fails, work out **which side is wrong** before changing anything. A mismatch is
+   either a real engine bug or a wrong expectation, and both are worth catching — so do not
+   simply copy what the engine said and move on. That is the failure mode this whole
+   mechanism exists to prevent.
+
+### Required fields
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique, kebab-case, prefixed by area (`refund-001-…`) |
+| `title` | One line, human readable |
+| `attack` | What the agent did, in prose |
+| `category` | Controlled vocabulary — see the list below |
+| `policy` | The temporal policy under test |
+| `expect` | `compliant` or `violation` |
+| `violation_at` | Optional. Only when the failure genuinely occurs *at* a step |
+| `why` | **Required in practice.** Why this verdict is correct |
+| `steps` | The trace, as `{atoms: [...]}` objects |
+
+Categories: `baseline`, `approval`, `authorization`, `prompt-injection`,
+`memory-poisoning`, `data-exfiltration`, `privilege-escalation`, `resource-exhaustion`,
+`termination`.
+
+### Do not pin `violation_at` for abandoned obligations
+
+If the trace ends without discharging an `F`, **every** prefix is unsatisfiable, so the
+first-failing-prefix rule reports step 0. That is correct but says nothing useful. The
+failure is the stall, not a step, so leave `violation_at` off. Pin it only when the
+obligation was live and then broken at a named position.
+
+### Every attack category needs a compliant counterpart
+
+A category containing only violations cannot distinguish "the control caught it" from "the
+policy rejects everything", so a corpus of only such cases measures nothing. If you add a
+violation, add the near-miss that should pass — a control must not be able to score well by
+blocking everything. There is a test for this.
+
+---
+
 ## Reporting a bug
 
 Open an issue with:

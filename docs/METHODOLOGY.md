@@ -175,14 +175,21 @@ Stated so nobody has to discover them:
 2. **Atom names are the abstraction boundary.** A policy constrains the vocabulary of the
    trace, so a badly chosen vocabulary produces confident verdicts about the wrong things.
    This is why the loader rejects malformed atoms rather than coercing them.
-3. **The corpus does not exist yet.** The verifier is real; the adversarial input that
-   makes it useful is not built.
+3. **The corpus is a baseline, not a measurement.** 26 cases across 9 attack categories
+   exist and are verified in CI, but that is a regression suite for the engine expressed as
+   data. It is far too small to rank two controls, which is the product's actual claim.
 4. **No control adapters.** TruePlumb cannot yet run a trace through an actual guardrail.
 5. **No aggregate statistics.** Pass rates, false-positive rates, and confidence intervals
-   are all unimplemented.
-6. **The differential harness is bounded by trace length.** Coverage grows as
+   are all unimplemented. Every number the tool reports today is a single deterministic
+   verdict on a single trace, which is a correctness statement and not a measurement.
+6. **Counterexample extraction cannot distinguish "not yet" from "never".** The
+   first-failing-prefix rule reports the earliest prefix that fails. For a trace ending
+   without discharging `F(done)`, every prefix fails, so the report is step 0 — correct,
+   but not informative. The useful answer ("the run stalled") is not what the tool currently
+   says. Corpus cases therefore do not pin a step where the failure is an abandonment.
+7. **The differential harness is bounded by trace length.** Coverage grows as
    `(alphabet + 1)^length`. Length 6 is roughly 91k traces per formula set, which is strong
    evidence but not a proof for all lengths.
-7. **State explosion is real.** A policy whose monitor explodes is unusable in CI. The
+8. **State explosion is real.** A policy whose monitor explodes is unusable in CI. The
    `explain` command reports state counts so this is visible before it bites, but no
    guard rail rejects an expensive policy automatically.

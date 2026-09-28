@@ -232,13 +232,18 @@ grows as `(alphabet + 1)^length`.
 
 Named explicitly so this document cannot be mistaken for a complete design.
 
-| Component | What it would do |
+| Component | State |
 |---|---|
-| **Attack corpus** | Versioned adversarial traces, each with an expected verdict. The hard part. |
-| **Control adapter interface** | Run a trace through a real guardrail, capture what it blocked. |
-| **Statistics** | Wilson intervals, McNemar paired tests, power analysis. |
-| **YAML policies** | Authoring format for policies; today they are strings. |
-| **Report generation** | Signed, reproducible reports across a corpus. |
+| **Attack corpus** | 🚧 baseline only — 26 cases, 9 categories, in `corpus/` |
+| **Corpus schema + validator** | ✅ `corpus.py`, verified in CI |
+| **Control adapter interface** | ❌ not started |
+| **Statistics** | ❌ not started — Wilson intervals, McNemar, power analysis |
+| **YAML policies** | ❌ not started; policies are strings today |
+| **Report generation** | ❌ not started |
+
+The corpus exists but does not yet rank anything. 26 cases is enough to make the format
+concrete and to serve as a regression suite for the engine; it is not enough to compare two
+guardrails, which is the actual product claim.
 
 The adapter interface is where the design decisions get interesting and are not yet made.
 `docs/METHODOLOGY.md` §6 explains why the verifier alone is not yet useful: a verdict about
