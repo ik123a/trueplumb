@@ -201,11 +201,19 @@ on, and it is pinned by tests in `tests/test_end_of_trace_semantics.py`.
 
 - [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) — how verdicts are computed, and what they don't claim
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — component design
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — and what would help most
+- [`SECURITY.md`](SECURITY.md) — threat model, and how to verify a release
 
 ## Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md). The corpus needs domain experts more than it
 needs code.
+
+## Security
+
+This tool's correctness is a security property, so there is a
+[threat model](SECURITY.md) and a way to verify any release independently — including a
+one-line check that nothing crept into the verified path.
 
 ## License
 

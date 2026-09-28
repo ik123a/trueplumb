@@ -1,0 +1,43 @@
+# Run the same gates CI runs, before a commit reaches CI.
+#
+# Installed with `pre-commit install`. Skipping this is how the ruff and mypy failures in
+# the early history got in: they were found by running the tools, not by writing tests.
+# The differential check is included because it is the gate that catches semantics bugs,
+# and a semantics bug must never be committable on a green unit suite alone.
+
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # Pinned to the mypy the code is actually validated against (2.3.1). A pre-commit hook
+  # running a different version than local/CI produces failures here that do not
+  # reproduce in CI, which trains people to bypass the hook -- worse than no hook.
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v2.3.1
+    hooks:
+      - id: mypy
+        files: ^src/
+        args: [--strict]
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: differential
+        name: differential (LTL engine vs reference semantics)
+        entry: python scripts/differential_test.py 4
+        language: system
+        pass_filenames: false
+        files: ^src/trueplumb/ltl/
