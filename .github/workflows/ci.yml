@@ -49,6 +49,13 @@ jobs:
       - name: Unit tests
         run: pytest --cov=src/trueplumb --cov-report=term-missing --cov-report=xml
 
+      # The corpus is a regression suite for the engine expressed as data rather than
+      # code, so it is verified in CI on the same footing. A case whose expected verdict
+      # drifts from what the engine produces is a failing claim about safety, and must not
+      # be able to sit in the repository looking authoritative.
+      - name: Verify attack corpus
+        run: python scripts/verify_corpus.py corpus/
+
       # The gate that makes the rest of the suite trustworthy. The reference implementation
       # in scripts/differential_test.py shares no code path with the derivative-based
       # monitor, so it is an independent opinion rather than a restatement of the engine's

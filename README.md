@@ -55,10 +55,38 @@ kept honest: anything not marked working does not exist in the tree.
 | Trace checking + counterexample extraction | ✅ working |
 | End-of-trace semantics | ✅ verified against an independent reference |
 | CLI (`verify`, `atoms`, `explain`) | ✅ working |
+| Corpus schema + validator | ✅ working |
+| Attack corpus (26 cases, 9 categories) | 🚧 baseline only — needs contributors |
 | Statistics (Wilson intervals, McNemar) | ❌ not started |
 | Control adapter interface | ❌ not started |
-| Attack corpus | ❌ not started |
 | YAML policy files | ❌ not started |
+
+### The corpus
+
+`corpus/agent_safety_baseline.json` — 26 cases across 9 attack categories: approval,
+authorization, prompt injection, memory poisoning, data exfiltration, privilege
+escalation, resource exhaustion, and termination.
+
+Each case is a trace, a policy, and **the verdict the policy must produce**. The
+expectations are not copied from the engine — they are hand-derived, and the engine is
+checked against them, so a semantics regression surfaces as a named failure instead of a
+silent pass.
+
+```bash
+python scripts/verify_corpus.py corpus/
+```
+
+Two properties are enforced rather than assumed:
+
+- **Every attack category has a compliant counterpart.** Without one, "the control caught
+  it" and "the policy rejects everything" look identical, and the false-positive half of the
+  measurement is simply absent.
+- **The validator can fail.** A test asserts that a deliberately wrong case is actually
+  rejected — otherwise a corpus that has quietly stopped testing anything is
+  indistinguishable from a working one.
+
+This is a **baseline**, not a competitive corpus. 26 cases do not rank anything. It exists
+to make the format concrete and to show what a case has to justify.
 
 ### What "verified" means here
 
