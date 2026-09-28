@@ -143,6 +143,84 @@ def verify(
 
 
 @app.command()
+def score(
+    corpus_path: Annotated[Path, typer.Argument(help="Corpus file or directory.")],
+    adapter: Annotated[
+        str,
+        typer.Option(
+            "--adapter",
+            help=(
+                "Control to score. 'none' is a do-nothing baseline that catches nothing, "
+                "which is the honest floor every real control should be compared against."
+            ),
+        ),
+    ] = "none",
+    compare: Annotated[
+        str | None,
+        typer.Option("--compare", help="A second control to test against the first."),
+    ] = None,
+    confidence: Annotated[float, typer.Option("--confidence", min=0.5, max=0.999)] = 0.95,
+) -> None:
+    """Score a control over a corpus: detection rate, false-positive rate, and CIs.
+
+    Two rates are reported rather than one accuracy figure on purpose. A control that
+    blocks every case scores 100% detection; only the false-positive column reveals that it
+    is useless. Merging them into a single number is how an unusable control gets quoted
+    as a good one.
+    """
+    from .adapters import compare_controls, score_control
+    from .baseline import AllowlistedTools, BlockEverything, NullAdapter
+    from .corpus import load_corpus
+
+    if corpus_path.is_dir():
+        candidates = sorted(corpus_path.glob("*.json"))
+        if not candidates:
+            raise _fail(f"no corpus files in {corpus_path}")
+        corpus = load_corpus(candidates[0])
+    elif corpus_path.is_file():
+        corpus = load_corpus(corpus_path)
+    else:
+        raise _fail(f"no such corpus file: {corpus_path}")
+
+    # The shipped reference controls. `none` is the floor and `block-everything` the
+    # ceiling that proves why one rate is never enough; `allowlist` is a realistic
+    # keyword-matching control that misses every sequence-dependent violation.
+    registry: dict[str, type] = {
+        "none": NullAdapter,
+        "block-everything": BlockEverything,
+        "allowlist": AllowlistedTools,
+    }
+    if adapter not in registry:
+        raise _fail(
+            f"unknown adapter {adapter!r}; available: {', '.join(sorted(registry))}. "
+            "Real adapters are contributed separately -- see CONTRIBUTING.md."
+        )
+    primary = registry[adapter]()
+
+    try:
+        score_result = score_control(primary, list(corpus.cases), confidence=confidence)
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
+
+    console.print(f"[bold]corpus:[/] {corpus.name} {corpus.version} — {len(corpus.cases)} cases")
+    console.print(score_result.render())
+
+    if compare:
+        if compare not in registry:
+            raise _fail(f"unknown adapter {compare!r}; available: {', '.join(sorted(registry))}")
+        other = registry[compare]()
+        result = compare_controls(primary, other, list(corpus.cases))
+        console.print()
+        console.print(f"[bold]paired comparison[/] {primary.describe()} vs {other.describe()}")
+        console.print(f"  {result.verdict()}")
+        if not result.significant and result.n_discordant:
+            console.print(
+                "  [dim]a non-significant result is not evidence of equivalence;"
+                " it means this corpus is too small to tell them apart[/]"
+            )
+
+
+@app.command()
 def atoms(
     trace: Annotated[Path, typer.Argument(help="Trace file (.json or .jsonl).")],
 ) -> None:

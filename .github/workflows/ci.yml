@@ -56,6 +56,25 @@ jobs:
       - name: Verify attack corpus
         run: python scripts/verify_corpus.py corpus/
 
+      # The measurement layer must stay reproducible. `score` is asserted to produce
+      # byte-identical output on two runs, because a rate that drifts between machines
+      # cannot be compared against another control's rate -- which is the only reason the
+      # number is computed here in the first place. Run on one version only; the
+      # arithmetic is closed-form and version-independent.
+      - name: Measurement layer is reproducible
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m trueplumb.cli score corpus/ --adapter allowlist > /tmp/score_a.txt
+          python -m trueplumb.cli score corpus/ --adapter allowlist > /tmp/score_b.txt
+          diff /tmp/score_a.txt /tmp/score_b.txt
+          cat /tmp/score_a.txt
+
+          # block-everything must still show 100% on BOTH rates. If a future change ever
+          # collapses these into a single number, this fails -- which is the point.
+          python -m trueplumb.cli score corpus/ --adapter block-everything \
+            | tee /tmp/block.txt
+          test "$(grep -c '100.0%' /tmp/block.txt)" -ge 2
+
       # The gate that makes the rest of the suite trustworthy. The reference implementation
       # in scripts/differential_test.py shares no code path with the derivative-based
       # monitor, so it is an independent opinion rather than a restatement of the engine's

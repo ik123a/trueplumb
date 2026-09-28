@@ -2,8 +2,10 @@
 
 How the verification core is put together, and why each piece is the way it is.
 
-Only the **verification core** exists. The corpus, control adapters, and statistics are
-not built; this document describes what is real and marks the rest explicitly.
+The **verification core**, the **corpus format**, and the **measurement layer** exist and
+are tested. What is missing is the part that makes it matter — adapters for real products,
+a corpus large enough to rank them, and signed reports. This document describes what is
+real and marks the rest explicitly.
 
 ---
 
@@ -41,6 +43,47 @@ not built; this document describes what is real and marks the rest explicitly.
 ```
 
 Everything above is pure, deterministic, offline, and free of LLM calls.
+
+The measurement layer sits above it and adds nothing to the verified path:
+
+```
+                    corpus/*.json
+                          |
+                          v
+                  +--------------+
+                  |  load_corpus |   schema validation, expected verdicts
+                  +--------------+
+                          |
+          +---------------+---------------+
+          |                               |
+          v                               v
+  +---------------+              +----------------+
+  | ControlAdapter|              |    check()     |
+  |  (yours)      |              |  (core, above) |
+  +---------------+              +----------------+
+          |  StepOutcome per step        |  CheckResult
+          +---------------+---------------+
+                          v
+                  +--------------+
+                  | score_control |  detection + false-positive Wilson intervals
+                  +--------------+
+                          |
+                          v
+                  +--------------+
+                  |compare_controls|  exact McNemar, paired
+                  +--------------+
+```
+
+Three properties hold across that second diagram as well:
+
+- **The core never learns about controls.** `check()` knows nothing about adapters, and
+  adapter code never touches the monitor. A guardrail bug cannot reach the verdict path.
+- **Adapters never execute anything.** A guardrail is arbitrary third-party code; running it
+  is the caller's job, in a sandbox they choose. TruePlumb defines the interface and does
+  the arithmetic, and stays out of the execution path.
+- **Adapters record decisions, never scores.** A control returning "confidence 0.97" is not
+  trusted for it. A vendor's own number is unverifiable, and checking vendor claims is the
+  premise of the project. The report is computed here from counts.
 
 ---
 
@@ -228,7 +271,48 @@ grows as `(alphabet + 1)^length`.
 
 ---
 
-## 8. Not built yet
+## 8. The measurement layer
+
+Three modules, deliberately separated by what they are allowed to know.
+
+| Module | Responsibility |
+|---|---|
+| `corpus.py` | Parse and validate corpus files; check every case against the engine |
+| `adapters.py` | The `ControlAdapter` interface; score and compare two controls |
+| `stats.py` | Wilson intervals and exact McNemar. Closed-form, stdlib only |
+| `baseline.py` | Three reference controls, including the two useless ones |
+
+### Three decisions, not status symbols
+
+`Decision` has **three** values, not two. A control that saw only the first three steps of a
+five-step trace has not "allowed" the last two; it has never been exposed to them.
+Collapsing `NOT_REACHED` into `ALLOWED` would inflate a false-negative rate, and it would do
+so silently, on partial runs, in a way nobody would notice. `ControlRun.decision_for`
+therefore defaults a missing entry to `NOT_REACHED` — the safe direction, because an
+incomplete run must never read as evidence of permission.
+
+### The reference controls exist to be beaten
+
+`baseline.py` ships `none` (allows everything), `block-everything` (blocks everything), and
+`allowlist` (keyword matching). The last two are not useful as controls; they are useful as
+arguments:
+
+- `block-everything` scores **100% detection and 100% false positives.** It is what a
+  single-rate report would present as a perfect score.
+- `allowlist` scores 69.2% detection with a 38.5% false-positive rate, and misses exactly
+  four cases: `refund-002-unapproved`, `refund-003-prior-approval-insufficient`,
+  `refund-004-stalled-before-approval`, and `terminated-002-stalled`. All four violate a
+  *temporal* obligation while containing no banned token at all. That is the corpus doing
+  the job it exists for — a keyword-matching guardrail cannot score well here, and now there
+  is a number that says so.
+
+`compare_controls` counts only violation cases, because a blocks-everything control wins on
+detection while being unusable, and a test comparison that rewarded that would be measuring
+the wrong thing.
+
+---
+
+## 9. Not built yet
 
 Named explicitly so this document cannot be mistaken for a complete design.
 
@@ -236,16 +320,18 @@ Named explicitly so this document cannot be mistaken for a complete design.
 |---|---|
 | **Attack corpus** | 🚧 baseline only — 26 cases, 9 categories, in `corpus/` |
 | **Corpus schema + validator** | ✅ `corpus.py`, verified in CI |
-| **Control adapter interface** | ❌ not started |
-| **Statistics** | ❌ not started — Wilson intervals, McNemar, power analysis |
+| **Control adapter interface** | ✅ `adapters.py` — abstract, not yet against a real product |
+| **Scoring + paired comparison** | ✅ detection, false positives, Wilson, exact McNemar |
+| **Real vendor adapters** | ❌ not started — **the honest gap** |
+| **Power analysis** | ❌ not started; 13 violation cases cannot separate two products |
 | **YAML policies** | ❌ not started; policies are strings today |
 | **Report generation** | ❌ not started |
 
-The corpus exists but does not yet rank anything. 26 cases is enough to make the format
-concrete and to serve as a regression suite for the engine; it is not enough to compare two
-guardrails, which is the actual product claim.
+The pipeline is complete end to end: corpus → adapter → scores → intervals → paired test.
+Everything in it is tested and deterministic. What is missing is the two things that would
+make the result mean something — a real adapter, and a corpus large enough for the
+statistics to have power.
 
-The adapter interface is where the design decisions get interesting and are not yet made.
-`docs/METHODOLOGY.md` §6 explains why the verifier alone is not yet useful: a verdict about
-one trace says nothing about whether a control works, until there is a corpus to run
-through it and an adapter to run it through.
+Those are not the same kind of gap. The adapter is engineering and needs a target product
+and a sandbox. The corpus is domain knowledge, and no amount of code produces it. Both are
+open invitations in [`CONTRIBUTING.md`](../CONTRIBUTING.md).

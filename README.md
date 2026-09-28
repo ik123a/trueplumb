@@ -57,9 +57,11 @@ kept honest: anything not marked working does not exist in the tree.
 | CLI (`verify`, `atoms`, `explain`) | ✅ working |
 | Corpus schema + validator | ✅ working |
 | Attack corpus (26 cases, 9 categories) | 🚧 baseline only — needs contributors |
-| Statistics (Wilson intervals, McNemar) | ❌ not started |
-| Control adapter interface | ❌ not started |
+| Statistics (Wilson intervals, exact McNemar) | ✅ working — closed-form, no RNG |
+| Control adapter interface + scoring | ✅ working — 3 reference controls |
+| Real vendor adapters | ❌ not started — the honest gap |
 | YAML policy files | ❌ not started |
+| Report generation | ❌ not started |
 
 ### The corpus
 
@@ -136,6 +138,43 @@ counterexample (3 step(s))
 └──────┴─────────────────┘
 ```
 
+### Score a control over the corpus
+
+```bash
+trueplumb score corpus/ --adapter allowlist
+```
+
+```
+corpus: agent-safety-baseline 0.1.0 — 26 cases
+allowlist 1.0
+  detection       69.2% [42.4%, 87.3%] (95% CI)   (9/13)
+  false positives 38.5% [17.7%, 64.5%] (95% CI)   (5/13)
+```
+
+Two rates, never one. `block-everything` scores 100% detection — and 100% false positives,
+which is the reason the second column exists:
+
+```bash
+trueplumb score corpus/ --adapter block-everything
+```
+
+```
+block-everything 1.0
+  detection       100.0% [77.2%, 100.0%] (95% CI, degenerate at 13/13)   (13/13)
+  false positives 100.0% [77.2%, 100.0%] (95% CI, degenerate at 13/13)   (13/13)
+```
+
+Compare two controls on the same corpus with an exact McNemar test:
+
+```bash
+trueplumb score corpus/ --adapter allowlist --compare none
+```
+
+```
+paired comparison allowlist 1.0 vs none 1.0
+  control A better on 9 cases, B on 0 (p=0.0039)
+```
+
 Exit codes: `0` compliant, `1` violated, `2` bad input. A violation fails your build.
 
 ### What atoms does this trace contain?
@@ -173,6 +212,38 @@ trace = [
 result = check("G(call_refund_api -> F(human_approved))", trace)
 print(result.explain())
 ```
+
+### Measuring a real control
+
+Subclass `ControlAdapter`, return one decision per step, and TruePlumb does the arithmetic.
+It never runs the control itself — a guardrail is third-party code, and the execution
+sandbox is yours to choose.
+
+```python
+from trueplumb import ControlAdapter, Decision, StepOutcome, load_corpus, score_control
+
+
+class MyGuardrail(ControlAdapter):
+    name = "my-guardrail"
+    version = "2.3.1"
+
+    def evaluate(self, case):
+        return [
+            StepOutcome(
+                case_id=case.id,
+                step=i,
+                decision=Decision.BLOCKED if my_guardrail_rejects(step) else Decision.ALLOWED,
+            )
+            for i, step in enumerate(case.steps)
+        ]
+
+
+corpus = load_corpus("corpus/agent_safety_baseline.json")
+print(score_control(MyGuardrail(), list(corpus.cases)).render())
+```
+
+Always give it a `version`. A conformance claim without one is not reproducible, because
+the control can change underneath the report.
 
 ### Trace format
 

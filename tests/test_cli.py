@@ -165,3 +165,82 @@ class TestTraceFormats:
         path.write_text(json.dumps([{"index": 0, "atoms": "call_refund_api"}]), encoding="utf-8")
         result = runner.invoke(app, ["verify", POLICY, str(path)])
         assert result.exit_code == 2
+
+
+class TestScoreCommand:
+    def test_scores_a_control_with_both_rates(self) -> None:
+        result = runner.invoke(app, ["score", "corpus/", "--adapter", "allowlist"])
+        assert result.exit_code == 0, result.output
+        assert "detection" in result.output
+        assert "false positives" in result.output
+        assert "allowlist" in result.output
+
+    def test_block_everything_shows_perfect_detection_and_perfect_false_positives(
+        self,
+    ) -> None:
+        # The demonstration the whole two-rate design exists for. If this ever renders as
+        # "100% detection" with no false-positive line, the report has been simplified into
+        # something misleading.
+        result = runner.invoke(app, ["score", "corpus/", "--adapter", "block-everything"])
+        assert result.exit_code == 0, result.output
+        assert result.output.count("100.0%") >= 2
+
+    def test_null_control_detects_nothing(self) -> None:
+        result = runner.invoke(app, ["score", "corpus/", "--adapter", "none"])
+        assert result.exit_code == 0, result.output
+        assert "0.0%" in result.output
+
+    def test_paired_comparison_is_reported(self) -> None:
+        result = runner.invoke(
+            app, ["score", "corpus/", "--adapter", "allowlist", "--compare", "none"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "paired comparison" in result.output
+
+    def test_unknown_adapter_exits_two(self) -> None:
+        result = runner.invoke(app, ["score", "corpus/", "--adapter", "nope"])
+        assert result.exit_code == 2
+        assert "unknown adapter" in result.output
+
+    def test_unknown_comparison_target_exits_two(self) -> None:
+        result = runner.invoke(app, ["score", "corpus/", "--adapter", "none", "--compare", "nope"])
+        assert result.exit_code == 2
+
+    def test_missing_corpus_exits_two(self) -> None:
+        result = runner.invoke(app, ["score", "no/such/path.json", "--adapter", "none"])
+        assert result.exit_code == 2
+
+    def test_empty_directory_exits_two(self, tmp_path: Path) -> None:
+        result = runner.invoke(app, ["score", str(tmp_path), "--adapter", "none"])
+        assert result.exit_code == 2
+
+    def test_accepts_a_single_corpus_file(self) -> None:
+        result = runner.invoke(
+            app, ["score", "corpus/agent_safety_baseline.json", "--adapter", "allowlist"]
+        )
+        assert result.exit_code == 0, result.output
+
+    def test_score_is_deterministic_across_runs(self) -> None:
+        first = runner.invoke(app, ["score", "corpus/", "--adapter", "allowlist"])
+        second = runner.invoke(app, ["score", "corpus/", "--adapter", "allowlist"])
+        assert first.output == second.output
+
+
+def test_public_api_exports_the_measurement_layer() -> None:
+    # The scoring surface is public API: a third party must be able to build an adapter and
+    # score it without reaching into private modules.
+    import trueplumb
+
+    for name in (
+        "ControlAdapter",
+        "ControlRun",
+        "Decision",
+        "StepOutcome",
+        "score_control",
+        "compare_controls",
+        "load_corpus",
+        "wilson_interval",
+        "mcnemar_exact",
+    ):
+        assert hasattr(trueplumb, name), f"{name} is not exported"
+        assert name in trueplumb.__all__

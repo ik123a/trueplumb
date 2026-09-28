@@ -28,7 +28,7 @@ uncertainty about a single deterministic computation is not a meaningful concept
 the automaton accepted the trace or it did not.
 
 Uncertainty appears one level up, when many traces are aggregated into a pass rate. That
-is where confidence intervals belong, and where they are not yet implemented.
+is where confidence intervals belong, and that is implemented — see §7.
 
 ---
 
@@ -151,8 +151,9 @@ Stated plainly, because this is where a tool like this would normally overreach.
 - **Not** that the policy is correct. TruePlumb verifies that behaviour matches the
   policy as written. Whether the policy is the right policy is a human judgement, and
   nothing here checks it.
-- **Not** statistical confidence. One trace in, one deterministic verdict out.
-  Confidence intervals belong to aggregate pass rates, which are not implemented yet.
+- **Not** statistical confidence, *at the trace level*. One trace in, one deterministic
+  verdict out. Confidence intervals appear only when many traces are aggregated into a rate
+  (§7), and even then only over the corpus that was measured.
 - **Not** coverage of unrecorded behaviour. If an action is not in the trace, no policy
   constrains it. A trace that never mentions `delete_records` trivially satisfies
   `G(!delete_records)` — and that is a statement about the trace, not about the system
@@ -166,7 +167,63 @@ verifier — is the hard part of this project.
 
 ---
 
-## 7. Current limitations
+## 7. Aggregating to a rate
+
+Once a corpus exists, a verdict per case becomes a proportion, and a proportion without an
+interval is a number that invites over-reading. Two decisions govern how TruePlumb reports
+it.
+
+### Two rates, never one
+
+A control's score is **detection rate** over cases that should be blocked, and **false
+positive rate** over cases that should pass. They are never combined.
+
+This is not a stylistic preference. A control that blocks every case scores 100% detection
+and is completely useless; the only number that reveals this is the false-positive rate.
+`tests/test_adapters.py` asserts this against a control that really does block everything,
+and asserts that no single `accuracy` field is ever produced — the report shape is the
+defence against someone later "simplifying" it.
+
+### Why Wilson and not Wald
+
+The normal-approximation interval is wrong precisely where conformance results live. Near
+rates of 0 and 1, and at small n, it can return a lower bound below zero or an upper bound
+above one, and it under-covers exactly when a control passes 20 of 20 attacks — the case a
+vendor is most eager to quote. The Wilson score interval stays inside [0, 1] and keeps
+sensible width. Reference values are pinned in `tests/test_stats.py` against the standard
+tables (10/10 → [0.7225, 1.0], 1/10 → [0.0179, 0.4042]).
+
+The **point estimate is never shrunk toward the interval centre.** Wilson shifts the
+interval, not the estimate, so the reported rate is the observed rate.
+
+### Why exact McNemar
+
+Both controls see the same corpus, so the comparison is paired, and only the cases where
+they *disagree* carry information. McNemar is the test for that, and the exact binomial
+formulation is used rather than the chi-square approximation because discordant counts in a
+security corpus are routinely in single digits, where the approximation is not trustworthy.
+
+Three honesty rules are enforced in the code:
+
+- No discordant pairs → p = 1, reported as "identical on all N cases". A coin flip is not
+  a result.
+- Not significant → "**no detectable difference**", never "equivalent" and never "as good
+  as". A non-significant result means the corpus is too small to tell them apart, and the
+  CLI prints that caveat alongside the number.
+- Detection only. False-positive differences are real, but mixing them into one test
+  answers "are these different" without answering "which is better" — and a
+  blocks-everything control wins on detection while being unusable.
+
+### Why there is no RNG
+
+Every formula here is closed-form. A bootstrap interval is only reproducible if the seed is
+fixed, and a fixed seed is exactly the sort of thing that silently differs between a laptop
+and a CI runner. Determinism is a stated design rule, and a confidence interval that varied
+between runs could not be compared across controls — which is the only reason it exists.
+
+---
+
+## 8. Current limitations
 
 Stated so nobody has to discover them:
 
@@ -178,10 +235,24 @@ Stated so nobody has to discover them:
 3. **The corpus is a baseline, not a measurement.** 26 cases across 9 attack categories
    exist and are verified in CI, but that is a regression suite for the engine expressed as
    data. It is far too small to rank two controls, which is the product's actual claim.
-4. **No control adapters.** TruePlumb cannot yet run a trace through an actual guardrail.
-5. **No aggregate statistics.** Pass rates, false-positive rates, and confidence intervals
-   are all unimplemented. Every number the tool reports today is a single deterministic
-   verdict on a single trace, which is a correctness statement and not a measurement.
+4. **No real vendor adapters.** The adapter interface, the scoring pipeline, and three
+   reference controls ship and work. What is missing is the part that actually matters: an
+   adapter for a real product. Until a contributor supplies one, TruePlumb measures itself
+   and its own reference baselines, not the market. Nothing here has been run against a
+   commercial guardrail, and no result in this repository should be presented as if it had.
+9. **Adapter scores are trusted at face value in one specific way.** TruePlumb records a
+   control's *decision*, not its internal state. A control that silently truncates its own
+   trace, or that only evaluates the first N steps, will be recorded as `NOT_REACHED` on
+   the rest — correct, but it will look like a miss rather than a broken harness. Real
+   adapters need their own checks that every step was genuinely presented.
+5. **Statistics are implemented but underpowered by the corpus.** Wilson intervals and the
+   exact McNemar test are closed-form, seed-free, and verified against published values.
+   They are computed over 13 violation and 13 compliant cases, so every interval in this
+   repository is very wide. A wide interval is an honest one, and a 13-case corpus is too
+   small to separate two real products. The arithmetic is ready; the data is not.
+   Note also that McNemar is a test on discordant pairs only: with few of them it lacks the
+   power to detect a real difference, and "no detectable difference" must not be read as
+   "these are equivalent." The CLI says so at the point of output.
 6. **Counterexample extraction cannot distinguish "not yet" from "never".** The
    first-failing-prefix rule reports the earliest prefix that fails. For a trace ending
    without discharging `F(done)`, every prefix fails, so the report is step 0 — correct,

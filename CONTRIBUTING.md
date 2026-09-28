@@ -123,6 +123,51 @@ Each of these was a real bug here. If your change touches them, read
 
 ---
 
+## Writing a control adapter
+
+The single most useful code contribution. The interface is three attributes and one method:
+
+```python
+from trueplumb import ControlAdapter, Decision, StepOutcome
+
+
+class MyGuardrail(ControlAdapter):
+    name = "my-guardrail"
+    version = "2.3.1"  # required. a claim without a version is not reproducible
+
+    def evaluate(self, case) -> list[StepOutcome]:
+        return [
+            StepOutcome(case_id=case.id, step=i, decision=decision_for(step))
+            for i, step in enumerate(case.steps)
+        ]
+```
+
+Then: `trueplumb score corpus/ --adapter my-guardrail`. To register it for the CLI, add it
+to the `registry` dict in `score()` in `src/trueplumb/cli.py`.
+
+### Four rules
+
+1. **Record decisions, never scores.** If your control emits a confidence number, put it in
+   `StepOutcome.evidence` and let TruePlumb do the arithmetic. A vendor's own score is
+   unverifiable, and checking vendor claims is the premise of the project.
+2. **Return an outcome for every step.** Steps your control never saw must be
+   `Decision.NOT_REACHED`, not `ALLOWED`. A missing entry is treated as `NOT_REACHED` by
+   `ControlRun`, but returning it explicitly makes partial runs visible instead of
+   relying on that default.
+3. **Do not execute anything inside the adapter.** A guardrail is arbitrary third-party
+   code and the sandbox is the caller's decision. Keep the adapter a thin translation layer.
+4. **Write a test that it is beatable and one that it is not useless.** A control with no
+   `block-everything`-style comparison tells nobody anything. Assert where your control
+   fails — every control has a blind spot, and naming it is more valuable than hiding it.
+
+### What a good adapter PR includes
+
+- The adapter, plus a note on which product and version it wraps.
+- A short list of what it **cannot** catch, if you found any.
+- Confirmation that the product's own scoring is not being trusted anywhere in the path.
+
+---
+
 ## Adding a corpus case
 
 The corpus is the most useful thing you can contribute, and the bar is **justifying the
