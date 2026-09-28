@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push supersedes an in-flight run for the same ref, but never cancels main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported and current stable. Testing both matters because the engine
+        # leans on stdlib dataclasses with slots and on match statements in the parser,
+        # either of which could quietly change behaviour across versions.
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Format check (ruff)
+        run: ruff format --check .
+
+      - name: Types (mypy)
+        run: mypy
+
+      - name: Unit tests
+        run: pytest --cov=src/trueplumb --cov-report=term-missing --cov-report=xml
+
+      # The gate that makes the rest of the suite trustworthy. The reference implementation
+      # in scripts/differential_test.py shares no code path with the derivative-based
+      # monitor, so it is an independent opinion rather than a restatement of the engine's
+      # own assumptions. Several genuine bugs in end-of-trace semantics -- including two
+      # that every hand-derived test initially agreed with -- were found only here.
+      - name: Differential vs reference semantics (exhaustive, length 4)
+        run: python scripts/differential_test.py 4
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: error
+
+  # The exhaustive check grows as (alphabet+1)^length, so length 6 is far too slow to run
+  # on every push. It runs on a schedule and before releases, where a deeper sweep is worth
+  # the minutes: length 5 is ~24k traces, length 6 is ~330k.
+  deep:
+    name: deep differential sweep
+    runs-on: ubuntu-latest
+    # Manual trigger, plus nightly and pre-release.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'release' ||
+      github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -e ".[dev]"
+
+      - name: Differential sweep, length 6 (~330k traces)
+        run: python scripts/differential_test.py 6
