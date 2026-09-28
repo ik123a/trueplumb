@@ -1,0 +1,6 @@
+{"index": 0, "atoms": ["agent_start", "read_order"]}
+{"index": 1, "atoms": ["lookup_order", "read_order"]}
+{"index": 2, "atoms": ["propose_refund", "human_approved"]}
+{"index": 3, "atoms": ["call_refund_api"]}
+{"index": 4, "atoms": ["send_receipt"]}
+{"index": 5, "atoms": ["agent_done"]}

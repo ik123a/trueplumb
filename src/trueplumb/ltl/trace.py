@@ -32,9 +32,23 @@ class TraceEvent:
     def from_dict(cls, payload: dict[str, Any], index: int) -> TraceEvent:
         atoms = payload.get("atoms")
         if atoms is None:
-            derived = payload.get("events") or payload.get("labels") or []
-            atoms = derived
-        return cls(index=index, atoms=frozenset(str(a) for a in atoms), raw=payload)
+            atoms = payload.get("events") or payload.get("labels") or []
+
+        # A bare string is rejected rather than iterated. `frozenset(str(a) for a in "abc")`
+        # silently yields {"a", "b", "c"}, so a trace written as `{"atoms": "dangerous"}`
+        # would parse into the atoms d, a, n, g, e, r, o, u, s -- a policy nobody wrote that
+        # can never be satisfied, reported with a confident verdict and no error at all.
+        # That is precisely the class of failure this project exists to catch, so the
+        # loader refuses to create it.
+        if isinstance(atoms, str) or not isinstance(atoms, (list, tuple, set, frozenset)):
+            raise ValueError(
+                f"event {index}: 'atoms' must be a list of strings, got {type(atoms).__name__}"
+            )
+        bad = [a for a in atoms if not isinstance(a, str)]
+        if bad:
+            raise ValueError(f"event {index}: non-string atom(s) {bad!r}")
+
+        return cls(index=index, atoms=frozenset(atoms), raw=payload)
 
     def to_dict(self) -> dict[str, Any]:
         return {"index": self.index, "atoms": sorted(self.atoms), "raw": self.raw}

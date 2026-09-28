@@ -299,12 +299,19 @@ def deriv(f: Formula, event: frozenset[str]) -> Formula:
             # The obligation moves to the next step; it is not judged now.
             return inner
         if f.op is TemporalOp.ALWAYS:
-            # G(p) survives the step only if p itself survives it. Rebuilding from the
-            # *simplified* operand is what lets subsumption fire: deriv(inner) collapses
-            # back into `inner`, which is a subformula of G(inner), so the conjunction
-            # stays the same size instead of growing a conjunct every step.
+            # G(p) survives a step only if p does, and the loop re-arms: deriv(G(p)) =
+            # deriv(p) & G(p). The `G(p)` re-arm is rebuilt from the *simplified* operand so
+            # that when deriv(p) collapses back to p the conjunction is absorbed by
+            # `G(p) & p == G(p)` and the residual does not grow a conjunct every step.
+            #
+            # The absorption is only sound for the identities in `_absorbed`. An earlier
+            # version dropped any term that appeared as a subformula of the loop, which is
+            # what erased a live `F(ok)` and made `G(act -> F(ok))` unsatisfiable -- an
+            # approval that landed before the action was silently ignored.
             return _and_simplify([deriv(inner, event), Temporal(f.op, inner)])
         if f.op is TemporalOp.EVENTUALLY:
+            # F(p) is the mirror: deriv(F(p)) = deriv(p) | F(p), and `F(p) | p == F(p)`
+            # absorbs the already-satisfied case.
             return _or_simplify([deriv(inner, event), Temporal(f.op, inner)])
         return f
 
