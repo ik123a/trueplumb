@@ -89,6 +89,8 @@ Three properties hold across that second diagram as well:
 
 ## 2. Module layout
 
+The verification core, which is everything the differential harness covers:
+
 | File | Responsibility |
 |---|---|
 | `ltl/parser.py` | Tokenizer + recursive-descent parser. No `eval()` anywhere. |
@@ -97,6 +99,21 @@ Three properties hold across that second diagram as well:
 | `ltl/trace.py` | `TraceEvent`, `check`, counterexample extraction. |
 | `cli.py` | Argument parsing and rendering only. No verdicts computed here. |
 | `scripts/differential_test.py` | Independent reference semantics + exhaustive comparison. |
+
+The measurement layer above it, which is not covered by the harness because it computes no
+verdicts — see §8 for what it is allowed to know:
+
+| File | Responsibility |
+|---|---|
+| `corpus.py` | Parse and validate corpus files; check each case against the engine |
+| `adapters.py` | The `ControlAdapter` interface; score and compare two controls |
+| `stats.py` | Wilson intervals and exact McNemar. Closed-form, stdlib only |
+| `baseline.py` | Three reference controls, including the two useless ones |
+| `presidio.py` | The first real-product adapter. Reads a log; executes nothing |
+| `scripts/record_presidio.py` | The only file that imports a vendor product. Runs where the caller chooses |
+| `scripts/verify_corpus.py` | Corpus gate: every case must match its hand-derived verdict |
+| `scripts/check_vendor_logs.py` | Committed vendor logs must still cover the whole corpus |
+| `scripts/assert_presidio_finding.py` | CI guard: the false-positive half stays visible |
 
 `cli.py` computes no verdicts deliberately. The moment presentation code can produce a
 verdict there are two implementations to keep in sync and only one of them is covered by

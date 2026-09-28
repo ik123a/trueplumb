@@ -42,11 +42,13 @@ variants, clustering failure modes). They never decide a verdict.
 
 ## Status
 
-**v0.1.0 — alpha.** The verification core is implemented, tested, and differentially
-verified. The corpus, control adapters, and statistics are not built yet.
+**v0.1.0 — alpha.** The verification core, the corpus, the measurement layer, and one
+adapter against a real commercial product are implemented and tested. What is missing is
+named below rather than left to be discovered.
 
 This project is being built in the open. The table below is the honest state, and it is
-kept honest: anything not marked working does not exist in the tree.
+kept honest: anything not marked working does not exist in the tree, and every number in
+this README is reproducible with the command printed next to it.
 
 | Component | State |
 |---|---|

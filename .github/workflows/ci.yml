@@ -117,7 +117,9 @@ jobs:
 
   # The exhaustive check grows as (alphabet+1)^length, so length 6 is far too slow to run
   # on every push. It runs on a schedule and before releases, where a deeper sweep is worth
-  # the minutes: length 5 is ~24k traces, length 6 is ~330k.
+  # the minutes. The counts are measured, not extrapolated: 6,540 traces at length 4,
+  # 23,946 at length 5, 91,182 at length 6. An earlier revision of this comment claimed
+  # ~330k for length 6, which is 3.6x the real figure.
   deep:
     name: deep differential sweep
     runs-on: ubuntu-latest
@@ -136,5 +138,5 @@ jobs:
       - name: Install
         run: python -m pip install -e ".[dev]"
 
-      - name: Differential sweep, length 6 (~330k traces)
+      - name: Differential sweep, length 6 (91,182 traces)
         run: python scripts/differential_test.py 6

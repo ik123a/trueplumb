@@ -14,7 +14,7 @@ than no tool, because it is trusted. Before opening a PR that touches `ltl/`, `c
 the trace loader:
 
 ```bash
-pytest                                     # 107 tests
+pytest                                     # 220 tests
 python scripts/differential_test.py 4      # 6,540 traces, no disagreements allowed
 ```
 

@@ -64,6 +64,18 @@ Stated plainly, because overclaiming here would be self-defeating.
   guarantee above.
 - **Model behaviour on unseen traces.** No claim is made about what an agent would do on a
   trace that was not recorded.
+- **A dishonest vendor log.** This is the sharpest one for a project whose premise is that
+  vendor claims need checking. A vendor decision log is an *input*: whoever supplies it
+  determines every number in the report. A fabricated log produces fabricated rates,
+  formatted and confidence-bounded exactly like real ones. `scripts/check_vendor_logs.py`
+  verifies that each log covers the whole corpus and carries the fields the adapter reads —
+  it cannot verify that the findings inside it are true, because doing so means re-running
+  the product, which means trusting a sandbox. So a log is evidence of *a* measurement, not
+  proof of it. Re-record it yourself before believing a published score.
+- **A hostile product inside your sandbox.** The adapter executes nothing, but
+  `scripts/record_presidio.py` runs arbitrary third-party code with whatever privileges you
+  give it. That the sandbox is the caller's job is a design property, not a safety
+  guarantee; an under-provisioned one is an ordinary remote-code-execution surface.
 
 See [`docs/METHODOLOGY.md`](docs/METHODOLOGY.md) §6 for the full statement.
 
@@ -86,7 +98,33 @@ print([check('G(!dangerous)', t).compliant for _ in range(100)])
 
 # 3. No hidden dependencies in the verified path.
 grep -rE '\b(openai|anthropic|requests|httpx|torch|socket|urllib)\b' src/trueplumb/ltl/ && echo 'FAIL' || echo 'OK'
+
+# 4. The vendor adapter still executes nothing. Parsed rather than grepped, because
+#    presidio.py's docstring names the import it forbids and a substring search would
+#    match its own explanation.
+python -c "
+import ast,pathlib
+t=ast.parse(pathlib.Path('src/trueplumb/presidio.py').read_text(encoding='utf-8'))
+found=set()
+for n in ast.walk(t):
+    if isinstance(n,ast.Import): found|={a.name.split('.')[0] for a in n.names}
+    elif isinstance(n,ast.ImportFrom) and n.module: found.add(n.module.split('.')[0])
+bad=found & {'presidio_analyzer','spacy','torch','transformers'}
+print('FAIL: '+str(sorted(bad)) if bad else 'OK')
+"
 ```
 
 Step 3 should print nothing. Any match means a dependency crept into the engine, and the
 determinism guarantee is no longer something the project can make.
+
+Step 4 must print `OK`. A match means the adapter has started importing the product it is
+supposed to be measuring, and the separation the whole measurement layer rests on is gone.
+
+Neither step can check the *contents* of a vendor log — see the threat model above. To
+confirm a published score, re-record the log yourself:
+
+```bash
+# 5. The committed logs still cover the corpus. This checks structure and coverage, never
+#    truthfulness; regenerating requires a sandbox with presidio-analyzer installed.
+python scripts/check_vendor_logs.py measurements/
+```
