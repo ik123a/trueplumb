@@ -14,7 +14,12 @@ long-term support branches yet.
 
 **Do not open a public issue for a security vulnerability.**
 
-Email **security@trueplumb.dev** with:
+Open a
+[private security advisory](https://github.com/ik123a/trueplumb/security/advisories/new)
+on this repository instead. That keeps the report private, gives us a place to discuss the
+fix before it is public, and works even before a release exists.
+
+Include:
 
 - what the issue is, and what an attacker gains
 - a minimal policy + trace that reproduces it, if you have one
