@@ -12,12 +12,18 @@ What it checks:
   one means the corpus shrank without re-recording.
 - Every step of every case has an entry, and the entry carries the fields the adapter
   reads. A log truncated at step 2 of 4 would otherwise read as "Presidio allowed the rest".
+- Every recorded entity is internally plausible: its score is a number in [0, 1], its
+  offsets fall inside the text it annotates, its span is non-degenerate and covers
+  non-whitespace, and it names a recognizer. This set was added after a real gap: a
+  fabricated entity injected into a shipped log moved detection from 13/15 to 14/15 and
+  this script passed it, because it checked only that the keys were *present*.
 - No timestamp-shaped key exists anywhere, so the log stays byte-reproducible.
 
-What it deliberately does *not* check is whether the scores are correct. Recomputing them
-means running the product, which means a presidio sandbox, which is deliberately not a CI
-dependency. The scores are a property of the pinned product version recorded in the log, and
-re-recording is a manual step that refreshes this file's view of the corpus.
+What it deliberately does *not* check is whether the scores are correct — only that the log
+is internally consistent. Verifying the findings means re-running the product, which means a
+presidio sandbox, which is deliberately not a CI dependency. The scores are a property of
+the pinned product version recorded in the log, and re-recording is a manual step that
+refreshes this file's view of the corpus.
 
 Run it directly:
 
@@ -52,6 +58,56 @@ def keys_of(node: Any) -> set[str]:
     if isinstance(node, list):
         return set().union(*(keys_of(v) for v in node)) if node else set()
     return set()
+
+
+def _entity_problems(
+    name: str, case_id: str, index: int, entity: dict[str, Any], text: str
+) -> list[str]:
+    """Validate one recorded entity against the text it claims to annotate.
+
+    The adapter's whole decision comes from these records: an entity is what makes a step
+    count as detected, so a fabricated or malformed one silently changes the reported rate.
+    Demonstrated concretely -- injecting a single fake entity into the shipped log moved
+    detection from 13/15 to 14/15, and the checker passed the result, because it only checked
+    that the keys were *present* and never that they were *plausible*.
+
+    This still does not prove a log is truthful. It proves the log is internally consistent,
+    which is a strictly weaker and honestly-stated claim.
+    """
+    where = f"{name}: case {case_id!r} step {index} entity"
+    problems: list[str] = []
+
+    score = entity.get("score")
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        problems.append(f"{where} 'score' is not a number")
+    elif not 0.0 <= float(score) <= 1.0:
+        problems.append(f"{where} 'score' is {score}, outside [0.0, 1.0]")
+
+    start, end = entity.get("start"), entity.get("end")
+    if not isinstance(start, int) or isinstance(start, bool):
+        problems.append(f"{where} 'start' is not an integer")
+    elif not 0 <= start < max(len(text), 1):
+        problems.append(f"{where} 'start' is {start}, outside the text of length {len(text)}")
+    if not isinstance(end, int) or isinstance(end, bool):
+        problems.append(f"{where} 'end' is not an integer")
+    elif not 0 <= end < max(len(text), 1):
+        problems.append(f"{where} 'end' is {end}, outside the text of length {len(text)}")
+    if isinstance(start, int) and isinstance(end, int) and not isinstance(start, bool):
+        if end < start:
+            problems.append(f"{where} 'end' ({end}) precedes 'start' ({start})")
+        elif end == start:
+            # A zero-width span annotates no text at all, yet the adapter counts a step as
+            # detected on the strength of the entity list. Such a record is a detection
+            # with nothing behind it, so it is rejected rather than silently scoring.
+            problems.append(f"{where} has a zero-width span ({start}..{end}); it annotates nothing")
+        elif text and not text[start:end].strip():
+            # A non-empty span that covers only whitespace is the signature of a placeholder.
+            problems.append(f"{where} spans {text[start:end]!r}, which is only whitespace")
+
+    if not str(entity.get("recognizer", "")).strip():
+        problems.append(f"{where} has no recognizer; a record with no provenance is not evidence")
+
+    return problems
 
 
 def check_log(log_path: Path, case_steps: dict[str, int]) -> list[str]:
@@ -113,6 +169,11 @@ def check_log(log_path: Path, case_steps: dict[str, int]) -> list[str]:
             for field in REQUIRED_STEP_FIELDS:
                 if field not in record:
                     problems.append(f"{name}: case {case_id!r} step {index} has no {field!r}")
+            text = record.get("text", "")
+            if not isinstance(text, str):
+                problems.append(f"{name}: case {case_id!r} step {index} 'text' is not a string")
+                text = ""
+
             for entity in record.get("entities", []):
                 if not isinstance(entity, dict):
                     problems.append(
@@ -124,6 +185,7 @@ def check_log(log_path: Path, case_steps: dict[str, int]) -> list[str]:
                         problems.append(
                             f"{name}: case {case_id!r} step {index} entity has no {field!r}"
                         )
+                problems.extend(_entity_problems(name, case_id, index, entity, text))
 
     for case_id in sorted(set(cases) - set(case_steps)):
         problems.append(

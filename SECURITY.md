@@ -68,9 +68,14 @@ Stated plainly, because overclaiming here would be self-defeating.
   vendor claims need checking. A vendor decision log is an *input*: whoever supplies it
   determines every number in the report. A fabricated log produces fabricated rates,
   formatted and confidence-bounded exactly like real ones. `scripts/check_vendor_logs.py`
-  verifies that each log covers the whole corpus and carries the fields the adapter reads —
-  it cannot verify that the findings inside it are true, because doing so means re-running
-  the product, which means trusting a sandbox. So a log is evidence of *a* measurement, not
+  verifies that each log covers the whole corpus, that every step is present, and that every
+  recorded entity is internally plausible — its score lies in [0, 1], its offsets fall inside
+  the text it annotates, its span is non-degenerate, and it names a recognizer. That last
+  set exists because a real gap was found here: the gate originally checked only that an
+  entity's keys were *present*, and injecting one fabricated entity into the shipped log
+  moved detection from 13/15 to 14/15 without the gate objecting. It still cannot verify
+  that the findings inside a log are true, because doing so means re-running the product,
+  which means trusting a sandbox. So a log is evidence of *a* measurement, not
   proof of it. Re-record it yourself before believing a published score.
 - **A hostile product inside your sandbox.** The adapter executes nothing, but
   `scripts/record_presidio.py` runs arbitrary third-party code with whatever privileges you
@@ -124,7 +129,8 @@ Neither step can check the *contents* of a vendor log — see the threat model a
 confirm a published score, re-record the log yourself:
 
 ```bash
-# 5. The committed logs still cover the corpus. This checks structure and coverage, never
-#    truthfulness; regenerating requires a sandbox with presidio-analyzer installed.
+# 5. The committed logs still cover the corpus. This checks coverage, structure, and
+#    per-entity plausibility; it never checks truthfulness, because that means re-running
+#    the product in a sandbox with presidio-analyzer installed.
 python scripts/check_vendor_logs.py measurements/
 ```

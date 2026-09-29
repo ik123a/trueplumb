@@ -62,6 +62,26 @@ def load(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def run_gate(tmp_path: Path, log: dict[str, Any]) -> int:
+    """Run `scripts/check_vendor_logs.py` over one candidate log. Returns its exit code."""
+    import subprocess
+
+    directory = tmp_path / "logs"
+    directory.mkdir(exist_ok=True)
+    (directory / "candidate.json").write_text(json.dumps(log), encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, "scripts/check_vendor_logs.py", str(directory)],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=ROOT,
+    )
+    return result.returncode
+
+
 class TestTheAdapterDoesNotRunTheProduct:
     def test_presidio_is_not_imported(self) -> None:
         # The whole separation rests on this. A conformance tool that imports the thing it
@@ -319,19 +339,7 @@ class TestItIsBeatableAndNotUseless:
 class TestTheCommittedLogsStayHonest:
     """`scripts/check_vendor_logs.py` is a CI gate, so it has to be able to fail."""
 
-    def _run(self, tmp_path: Path, log: dict[str, Any]) -> int:
-        import subprocess
-
-        directory = tmp_path / "logs"
-        directory.mkdir()
-        (directory / "candidate.json").write_text(json.dumps(log), encoding="utf-8")
-        result = subprocess.run(
-            [sys.executable, "scripts/check_vendor_logs.py", str(directory)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.returncode
+    _run = staticmethod(run_gate)
 
     def test_a_correct_log_passes(self, tmp_path: Path) -> None:
         assert self._run(tmp_path, load(ATOM_LOG)) == 0
@@ -353,6 +361,72 @@ class TestTheCommittedLogsStayHonest:
         truncated = load(ATOM_LOG)
         truncated["cases"]["refund-001-approved"].pop("2")
         assert self._run(tmp_path, truncated) == 1
+
+
+class TestAFabricatedEntityIsRejected:
+    """A log is an input, so it must be checked for plausibility, not just for shape.
+
+    The defect these tests were written for: the gate verified that an entity's keys were
+    *present* and never that they were *plausible*. Injecting one fake entity into the
+    shipped log moved detection from 13/15 to 14/15 and the gate passed it. Presence is not
+    evidence.
+    """
+
+    _run = staticmethod(run_gate)
+
+    def _inject(self, log: dict[str, Any], **overrides: Any) -> dict[str, Any]:
+        case_id, step_id = "destructive-001-unapproved-delete", "0"
+        entity = {
+            "entity_type": "EMAIL_ADDRESS",
+            "score": 0.99,
+            "start": 0,
+            "end": 4,
+            "recognizer": "fabricated",
+        }
+        entity.update(overrides)
+        log["cases"][case_id][step_id]["entities"].append(entity)
+        return log
+
+    def test_the_untouched_log_still_passes(self, tmp_path: Path) -> None:
+        # The new validation must not reject the authentic logs. A gate that is always
+        # failing is indistinguishable from a gate that is broken.
+        assert self._run(tmp_path, load(PAYLOAD_LOG)) == 0
+
+    @pytest.mark.parametrize(
+        ("label", "overrides"),
+        [
+            ("score above one", {"score": 1.7}),
+            ("score below zero", {"score": -0.2}),
+            ("score is a string", {"score": "high"}),
+            ("score is a bool", {"score": True}),
+            ("start past the end of the text", {"start": 999, "end": 1004}),
+            ("end before start", {"start": 4, "end": 1}),
+            ("zero-width span", {"start": 0, "end": 0}),
+            ("whitespace-only span", {"start": 0, "end": 3, "recognizer": " "}),
+            ("no recognizer", {"recognizer": ""}),
+            ("start is not an integer", {"start": "0"}),
+        ],
+    )
+    def test_a_malformed_entity_fails(
+        self, tmp_path: Path, label: str, overrides: dict[str, Any]
+    ) -> None:
+        log = self._inject(load(PAYLOAD_LOG), **overrides)
+        assert self._run(tmp_path, log) == 1, f"a {label} entity was accepted"
+
+    def test_a_well_formed_entity_passes(self, tmp_path: Path) -> None:
+        # Guards against the validation being so strict that real records get rejected. An
+        # offset pointing at real, non-whitespace text inside the step is legitimate.
+        log = self._inject(load(PAYLOAD_LOG), start=6, end=12)
+        assert self._run(tmp_path, log) == 0
+
+
+class TestTheCheckerStatesItsOwnLimit:
+    def test_it_does_not_claim_to_verify_truth(self) -> None:
+        # The checker's own docstring must keep saying what it cannot do. Overstating the
+        # gate is how a project premised on distrust ends up trusting a file.
+        source = (ROOT / "scripts" / "check_vendor_logs.py").read_text(encoding="utf-8")
+        assert "does *not* check is whether the scores are correct" in source
+        assert "internally consistent" in source
 
 
 class TestEntityTypeNarrowing:
