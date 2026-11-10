@@ -90,7 +90,7 @@ def _entity_problems(
         problems.append(f"{where} 'start' is {start}, outside the text of length {len(text)}")
     if not isinstance(end, int) or isinstance(end, bool):
         problems.append(f"{where} 'end' is not an integer")
-    elif not 0 <= end < max(len(text), 1):
+    elif not 0 <= end <= len(text):
         problems.append(f"{where} 'end' is {end}, outside the text of length {len(text)}")
     if isinstance(start, int) and isinstance(end, int) and not isinstance(start, bool):
         if end < start:
