@@ -413,6 +413,12 @@ class TestAFabricatedEntityIsRejected:
         log = self._inject(load(PAYLOAD_LOG), **overrides)
         assert self._run(tmp_path, log) == 1, f"a {label} entity was accepted"
 
+    def test_an_entity_ending_at_the_text_boundary_passes(self, tmp_path: Path) -> None:
+        log = load(PAYLOAD_LOG)
+        text = log["cases"]["destructive-001-unapproved-delete"]["0"]["text"]
+        log = self._inject(log, start=0, end=len(text))
+        assert self._run(tmp_path, log) == 0
+
     def test_a_well_formed_entity_passes(self, tmp_path: Path) -> None:
         # Guards against the validation being so strict that real records get rejected. An
         # offset pointing at real, non-whitespace text inside the step is legitimate.

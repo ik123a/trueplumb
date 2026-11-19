@@ -4,11 +4,7 @@
 
 A vendor-neutral, open-source **conformance testbed for AI agent safety controls**.
 
-Point TruePlumb at any guardrail, firewall, memory defense, or policy engine. It runs a
-versioned, adversarially-constructed attack corpus through each control and reports
-**what actually gets caught** — with confidence intervals, a false-positive rate, and a
-minimal counterexample for every failure.
-
+TruePlumb evaluates recorded control decisions over a versioned attack corpus and reports detection and false-positive rates with confidence intervals. Its LTLf monitor checks recorded traces and returns diagnostic counterexample suffixes. Adapters consume decisions; the scoring path does not execute arbitrary vendor products.
 ---
 
 ## Why this exists
@@ -363,3 +359,22 @@ one-line check that nothing crept into the verified path.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Reproducible local audit (2026-11-10)
+
+```mermaid
+flowchart LR
+  Policy[LTLf policy] --> Parser[Parser and formula AST]
+  Parser --> Monitor[Derivative-based finite monitor]
+  Trace[Recorded JSONL trace] --> Monitor
+  Monitor --> Verdict[Verdict and counterexample suffix]
+  Corpus[Versioned corpus] --> Score[Adapter decisions and two-rate scoring]
+  Logs[Recorded vendor logs] --> Gate[Schema, offsets, corpus coverage gate]
+  Gate --> Score
+```
+
+The checker consumes recorded traces and adapter outcomes; it does not execute arbitrary commercial controls. A counterexample suffix is diagnostic evidence, not a proof of globally minimal causal blame. Pending eventual obligations may identify an early prefix; see the strict-index discussion in `src/trueplumb/corpus.py`.
+
+In an isolated Python 3.13 environment, `python -m pytest` passed 234 tests, and `python scripts/check_vendor_logs.py measurements/` passed both committed logs covering 30 cases. No Presidio runtime, model, dataset download, or live provider was used. These results verify the checked code and fixtures, not real-world guardrail effectiveness. SciPy-backed optional statistics and release packaging were not separately exercised.
+
+The audit repaired the log gate's exclusive end-offset boundary: a valid span may end at `len(text)`. A regression injects such a span into a temporary log and runs the actual gate subprocess. Revert the audit commit to roll back. This is a command-line library, so the diagram and reproducible commands are the relevant visual documentation; no browser application screenshot is implied.
